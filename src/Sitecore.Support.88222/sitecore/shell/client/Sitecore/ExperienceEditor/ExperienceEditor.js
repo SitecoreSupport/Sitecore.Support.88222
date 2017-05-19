@@ -218,7 +218,7 @@
         ExperienceEditorContext.instance.disableRedirection = disableRedirection;
         Sitecore.Commands.Save.execute(ExperienceEditorContext.instance);
         experienceEditor.Common.addOneTimeEvent(function () {
-          return ExperienceEditorContext.isContentSaved;
+          return !ExperienceEditorContext.isModified;
         }, function () {
           if (onCloseCallback) {
             return onCloseCallback(isOk);
@@ -243,6 +243,19 @@
       } catch (e) {
         return;
       }
+    },
+
+    processInModifiedHandlingMode: function (callbackFunc) {
+      if (!experienceEditor.getContext().isModified) {
+        callbackFunc();
+        return;
+      }
+
+      experienceEditor.modifiedHandling(true, function (isOk) {
+        if (isOk) {
+          eval(callbackFunc());
+        }
+      });
     },
 
     generatePageContext: function(context, doc) {
@@ -709,7 +722,7 @@
 
     replaceCEParameter: function (url, value) {
       return experienceEditor.Web.setQueryStringValue(url, "sc_ce", value);
-    },	
+    },
 
     postServerRequest: function (requestType, commandContext, handler, async) {
       var token = $('input[name="__RequestVerificationToken"]').val();
@@ -737,7 +750,7 @@
         async: async != undefined ? async : false
       });
     }
-  };  
+  };
 
   experienceEditor.PipelinesUtil = {
     generateDialogCallProcessor: function (options) {
@@ -747,7 +760,7 @@
           context.suspend();
           experienceEditor.Dialogs.showModalDialog(options.url(context), options.arguments, options.features, options.request, function(responseValue) {
             if (!responseValue || responseValue.length <= 0) {
-              context.aborted = true;
+              context.abort();
               return;
             }
 
@@ -788,20 +801,24 @@
                   //experienceEditor.Dialogs.alert(response.errorMessage);
                 }
               }
-              context.aborted = true;
+
+              if (context.abort) {
+                context.abort();
+              }
+
               return;
             }
 
             if (!response.responseValue) {
               console.log(requestType + " is not implemented on server side.");
-              context.aborted = true;
+              context.abort();
               return;
             }
 
             if (response.responseValue.abortMessage
               && response.responseValue.abortMessage != "") {
               experienceEditor.Dialogs.alert(response.responseValue.abortMessage);
-              context.aborted = true;
+              context.abort();
               return;
             }
 
@@ -809,7 +826,7 @@
               && response.responseValue.confirmMessage != "") {
               experienceEditor.Dialogs.confirm(response.responseValue.confirmMessage, function (isOk) {
                 if (!isOk) {
-                  context.aborted = true;
+                  context.abort();
                   return;
                 }
 
@@ -844,7 +861,7 @@
       onSuccess(response);
     },
 
-    executeProcessors: function (pipeline, context) {
+    executeProcessors: function (pipeline, context, onPipelineFinished) {
       if (pipeline == null) {
         return;
       }
@@ -861,12 +878,16 @@
       context.pipelineProcessors = list;
       context.currentProcessorIndex = 0;
 
-      experienceEditor.PipelinesUtil.runProcessor(context);
+      experienceEditor.PipelinesUtil.runProcessor(context, onPipelineFinished);
     },
 
-    runProcessor: function (context) {
+    runProcessor: function (context, onPipelineFinished) {
       var processor = context.pipelineProcessors[context.currentProcessorIndex];
       if (!processor) {
+        if (onPipelineFinished) {
+          onPipelineFinished(context);
+        }
+
         return;
       }
 
@@ -877,7 +898,14 @@
       context.resume = function () {
         context.suspended = false;
         context.currentProcessorIndex++;
-        experienceEditor.PipelinesUtil.runProcessor(context);
+        experienceEditor.PipelinesUtil.runProcessor(context, onPipelineFinished);
+      };
+
+      context.abort = function () {
+        context.aborted = true;
+        if (onPipelineFinished) {
+          onPipelineFinished(context);
+        }
       };
 
       processor.execute(context);
