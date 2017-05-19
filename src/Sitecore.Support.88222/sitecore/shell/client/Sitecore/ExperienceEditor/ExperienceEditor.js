@@ -218,7 +218,7 @@
         ExperienceEditorContext.instance.disableRedirection = disableRedirection;
         Sitecore.Commands.Save.execute(ExperienceEditorContext.instance);
         experienceEditor.Common.addOneTimeEvent(function () {
-          return !ExperienceEditorContext.isModified;
+          return ExperienceEditorContext.isContentSaved;
         }, function () {
           if (onCloseCallback) {
             return onCloseCallback(isOk);
@@ -243,19 +243,6 @@
       } catch (e) {
         return;
       }
-    },
-
-    processInModifiedHandlingMode: function (callbackFunc) {
-      if (!experienceEditor.getContext().isModified) {
-        callbackFunc();
-        return;
-      }
-
-      experienceEditor.modifiedHandling(true, function (isOk) {
-        if (isOk) {
-          eval(callbackFunc());
-        }
-      });
     },
 
     generatePageContext: function(context, doc) {
@@ -722,7 +709,7 @@
 
     replaceCEParameter: function (url, value) {
       return experienceEditor.Web.setQueryStringValue(url, "sc_ce", value);
-    },
+    },	
 
     postServerRequest: function (requestType, commandContext, handler, async) {
       var token = $('input[name="__RequestVerificationToken"]').val();
@@ -750,7 +737,7 @@
         async: async != undefined ? async : false
       });
     }
-  };
+  };  
 
   experienceEditor.PipelinesUtil = {
     generateDialogCallProcessor: function (options) {
@@ -760,7 +747,7 @@
           context.suspend();
           experienceEditor.Dialogs.showModalDialog(options.url(context), options.arguments, options.features, options.request, function(responseValue) {
             if (!responseValue || responseValue.length <= 0) {
-              context.abort();
+              context.aborted = true;
               return;
             }
 
@@ -801,24 +788,20 @@
                   //experienceEditor.Dialogs.alert(response.errorMessage);
                 }
               }
-
-              if (context.abort) {
-                context.abort();
-              }
-
+              context.aborted = true;
               return;
             }
 
             if (!response.responseValue) {
               console.log(requestType + " is not implemented on server side.");
-              context.abort();
+              context.aborted = true;
               return;
             }
 
             if (response.responseValue.abortMessage
               && response.responseValue.abortMessage != "") {
               experienceEditor.Dialogs.alert(response.responseValue.abortMessage);
-              context.abort();
+              context.aborted = true;
               return;
             }
 
@@ -826,7 +809,7 @@
               && response.responseValue.confirmMessage != "") {
               experienceEditor.Dialogs.confirm(response.responseValue.confirmMessage, function (isOk) {
                 if (!isOk) {
-                  context.abort();
+                  context.aborted = true;
                   return;
                 }
 
@@ -861,7 +844,7 @@
       onSuccess(response);
     },
 
-    executeProcessors: function (pipeline, context, onPipelineFinished) {
+    executeProcessors: function (pipeline, context) {
       if (pipeline == null) {
         return;
       }
@@ -878,16 +861,12 @@
       context.pipelineProcessors = list;
       context.currentProcessorIndex = 0;
 
-      experienceEditor.PipelinesUtil.runProcessor(context, onPipelineFinished);
+      experienceEditor.PipelinesUtil.runProcessor(context);
     },
 
-    runProcessor: function (context, onPipelineFinished) {
+    runProcessor: function (context) {
       var processor = context.pipelineProcessors[context.currentProcessorIndex];
       if (!processor) {
-        if (onPipelineFinished) {
-          onPipelineFinished(context);
-        }
-
         return;
       }
 
@@ -898,14 +877,7 @@
       context.resume = function () {
         context.suspended = false;
         context.currentProcessorIndex++;
-        experienceEditor.PipelinesUtil.runProcessor(context, onPipelineFinished);
-      };
-
-      context.abort = function () {
-        context.aborted = true;
-        if (onPipelineFinished) {
-          onPipelineFinished(context);
-        }
+        experienceEditor.PipelinesUtil.runProcessor(context);
       };
 
       processor.execute(context);
