@@ -11,123 +11,6 @@
       return ExperienceEditorContext;
     },
 
-    getPageEditingWindow: function() {
-      return window.parent;
-    },
-
-    getPageDatasourcesItemIDs: function() {
-      var itemsArray = experienceEditor.getPageEditingWindow().Sitecore.LayoutDefinition.getRenderingsWithDatasources();
-      var itemIDs = [];
-      $.each(itemsArray, function () {
-        var datasource = this["@ds"];
-        if (datasource != "") {
-          var itemVersion = experienceEditor.getRenderingDatasourceItemVersion(this);
-          var itemIdWithVersion = datasource + "," + itemVersion;
-          itemIDs.push(itemIdWithVersion);
-        }
-      });
-
-      return itemIDs;
-    },
-
-    getRenderingDatasourceItemVersion: function (renderingDefinition) {
-      var shortRenderingId = experienceEditor.getPageEditingWindow().Sitecore.LayoutDefinition.getShortID(renderingDefinition["@id"]);
-      var chromes = experienceEditor.getPageEditingWindow().Sitecore.PageModes.ChromeManager._chromes;
-      var itemVersion;
-      $.each(chromes, function () {
-        if (!this.data || !this.data.custom || !this.data.custom.renderingID) {
-          return;
-        }
-
-        if (this.data.custom.renderingID == shortRenderingId) {
-          itemVersion = experienceEditor.Common.getItemVersion(this.data.contextItemUri);
-        }
-      });
-
-      return itemVersion;
-    },
-
-    isShowDatasourcesIsTicked: function() {
-      if (!Sitecore.Commands.ShowDataSources
-        || !Sitecore.Commands.ShowDataSources.reEvaluate()) {
-        return false;
-      }
-
-      var showDataSourcesCheckControl = experienceEditor.CommandsUtil.getControlsByCommand(experienceEditor.getContext().instance.Controls, "ShowDataSources")[0];
-      if (!showDataSourcesCheckControl) {
-        return false;
-      }
-
-      if (showDataSourcesCheckControl.model.get("isChecked") != "1") {
-        return false;
-      }
-
-      return true;
-    },
-
-    getDatasourceUsagesWithFinalWorkflowStep: function (context, func) {
-      var itemId = context.currentContext.itemId.toLowerCase();
-      experienceEditor.PipelinesUtil.generateRequestProcessor("ExperienceEditor.Datasources.GetDatasourceUsagesWithFinalWorkflowStep", function (response) {
-        var isInFinalStep = null;
-        $.each(response.responseValue.value, function () {
-          if (isInFinalStep == false) {
-            return;
-          }
-
-          if (itemId.indexOf(this.ItemId) == -1) {
-            isInFinalStep = this.IsFinalWorkflowStep;
-          }
-        });
-
-        if (func) {
-          func(response, isInFinalStep);
-        }
-      }).execute(context);
-    },
-
-    areItemsInFinalWorkflowState: function (context, itemsArray, func) {
-      var itemId = context.currentContext.itemId.toLowerCase();
-      if (itemsArray) {
-        context.currentContext.value = itemsArray.join("|");
-      }
-
-      experienceEditor.PipelinesUtil.generateRequestProcessor("ExperienceEditor.Workflow.AreItemsInFinalWorkflowState", function (response) {
-        var notInFinalStateCount = 0;
-        var inFinalStateCount = 0;
-        var inFinalStateCountAndNotPublished = 0;
-        $.each(response.responseValue.value, function () {
-          if (itemId.indexOf(this.ItemId) != -1) {
-            return;
-          }
-
-          if (this.IsFinalWorkflowStep === false) {
-            notInFinalStateCount ++;
-          }
-
-          if (this.IsFinalWorkflowStep === true) {
-            inFinalStateCount++;
-          }
-
-          if (this.IsFinalWorkflowStep === true
-            && this.IsPublished === false) {
-            inFinalStateCountAndNotPublished++;
-          }
-        });
-
-        var resultObject = {
-          context: response.context,
-          collection: response.responseValue.value,
-          notInFinalStateCount: notInFinalStateCount,
-          inFinalStateCount: inFinalStateCount,
-          inFinalStateCountAndNotPublished: inFinalStateCountAndNotPublished
-        };
-
-        if (func) {
-          func(resultObject);
-        }
-      }).execute(context);
-    },
-
     isInMode: function (mode) {
       return experienceEditor.getContext().instance.currentContext.webEditMode.toLowerCase() == mode.toLowerCase();
     },
@@ -144,14 +27,6 @@
       return experienceEditor.canDebug;
     },
 
-    trigger: function(eventName) {
-      jQuery(experienceEditor.getPageEditingWindow().document.body).trigger(eventName);
-    },
-
-    on: function (eventName, func) {
-      jQuery(experienceEditor.getPageEditingWindow().document.body).on(eventName, func);
-    },
-
     isInSharedLayout: function(context) {
       var editAllVersionsControls = this.CommandsUtil.getControlsByCommand(Sitecore.ExperienceEditor.Context.instance.Controls, "SelectLayout");
       if (editAllVersionsControls.length < 1
@@ -162,22 +37,6 @@
       }
 
       return context.app.canExecute("ExperienceEditor.Versions.GetStatus", context.currentContext);
-    },
-
-    isEditingAndDesigningAllowed: function() {
-      var isAllowed = (Sitecore.Commands.EnableEditing && Sitecore.Commands.EnableEditing.isEnabled) || (Sitecore.Commands.EnableDesigning && Sitecore.Commands.EnableDesigning.isEnabled);
-      if (!isAllowed) {
-        var commands = ["EnableEditing", "EnableDesigning"];
-        for (var i = 0; i < commands.length; i++) {
-          var controls = this.CommandsUtil.getControlsByCommand(this.getContext().instance.Controls, commands[i]);
-          if (controls[0] && controls[0].model.get("isChecked") == "1") {
-            isAllowed = true;
-            break;
-          }
-        }
-      }
-
-      return isAllowed;
     },
 
     setSaveButtonState: function (isEnabled) {
@@ -218,7 +77,7 @@
         ExperienceEditorContext.instance.disableRedirection = disableRedirection;
         Sitecore.Commands.Save.execute(ExperienceEditorContext.instance);
         experienceEditor.Common.addOneTimeEvent(function () {
-          return !ExperienceEditorContext.isModified;
+          return ExperienceEditorContext.isContentSaved;
         }, function () {
           if (onCloseCallback) {
             return onCloseCallback(isOk);
@@ -243,19 +102,6 @@
       } catch (e) {
         return;
       }
-    },
-
-    processInModifiedHandlingMode: function (callbackFunc) {
-      if (!experienceEditor.getContext().isModified) {
-        callbackFunc();
-        return;
-      }
-
-      experienceEditor.modifiedHandling(true, function (isOk) {
-        if (isOk) {
-          eval(callbackFunc());
-        }
-      });
     },
 
     generatePageContext: function(context, doc) {
@@ -297,9 +143,9 @@
     },
 
     navigateToItem: function (itemId) {
-      var origin = experienceEditor.getPageEditingWindow().location.origin;
+      var origin = window.parent.location.origin;
       if (!origin) {
-        origin = experienceEditor.getPageEditingWindow().location.protocol + "//" + experienceEditor.getPageEditingWindow().location.hostname + (experienceEditor.getPageEditingWindow().location.port ? ':' + experienceEditor.getPageEditingWindow().location.port : '');
+        origin = window.parent.location.protocol + "//" + window.parent.location.hostname + (window.parent.location.port ? ':' + window.parent.location.port : '');
       }
 
       var virtualFolder = experienceEditor.getContext().instance.currentContext.virtualFolder;
@@ -307,7 +153,7 @@
         origin = origin + virtualFolder;
       }
 
-      var url = origin + experienceEditor.getPageEditingWindow().location.search;
+      var url = origin + window.parent.location.search;
       url = experienceEditor.Web.replaceItemIdParameter(url, itemId);
       url = experienceEditor.Web.setQueryStringValue(url, "sc_ee_fb", "false");
       url = experienceEditor.Web.removeQueryStringParameter(url, "sc_version");
@@ -318,7 +164,7 @@
     navigateToItemInCE: function (itemId) {
       var context = experienceEditor.generateDefaultContext();
       context.currentContext.value = itemId;
-      var usePopUpContentEditor = experienceEditor.getPageEditingWindow().Sitecore.WebEditSettings.usePopUpContentEditor;
+      var usePopUpContentEditor = window.parent.Sitecore.WebEditSettings.usePopUpContentEditor;
       if (usePopUpContentEditor) {
         experienceEditor.PipelinesUtil.generateRequestProcessor("ExperienceEditor.Breadcrumb.EditItem", function (response) {
           var value = response.responseValue.value.split('|');
@@ -328,6 +174,7 @@
 
           var dialogUrl = value[0];
           var dialogFeatures = value[1];
+          console.log(response.responseValue.value);
           experienceEditor.Dialogs.showModalDialog(dialogUrl, null, dialogFeatures);
         }).execute(context);
 
@@ -343,55 +190,20 @@
 
     navigateToUrl: function (url) {
       experienceEditor.modifiedHandling(true, function (isOk) {
-        experienceEditor.getPageEditingWindow().location = url;
+        window.parent.location = url;
       });
     },
 
     ribbonFrame: function () {
-      return experienceEditor.getPageEditingWindow().document.getElementById("scWebEditRibbon");
+      return window.parent.document.getElementById("scWebEditRibbon");
     },
 
     ribbonDocument: function () {
       return experienceEditor.ribbonFrame().contentWindow.document;
-    },
-
-    ribbonIsCollapsed: function () {
-      var isCollapsedCookie = experienceEditor.Common.getCookieValue("sitecore_webedit_ribbon");
-      if (isCollapsedCookie === "") {
-        return false;
-      }
-
-      return isCollapsedCookie === "1" ? false : true;
-    },
-
-    getCurrentTabId: function () {
-      var previewTabId = "VersionStrip_ribbon_tab";
-      var currentTab = experienceEditor.Common.getCookieValue("sitecore_webedit_activestrip");
-      if (experienceEditor.Web.getUrlQueryStringValue("mode") == "preview"
-        && document.getElementById(previewTabId) != null) {
-        currentTab = previewTabId;
-      }
-
-      return currentTab;
     }
   };
 
   experienceEditor.Common = {
-    getItemVersion: function (contextItemUri) {
-      var fragments = contextItemUri.split("/")[contextItemUri.split("/").length - 1].split("?");
-      if (!fragments
-        || fragments.length === 0) {
-        return "";
-      }
-      var verFragments = fragments[1].split(";ver=");
-      if (!verFragments
-        || verFragments.length === 0) {
-        return "";
-      }
-
-      return verFragments[1];
-    },
-
     registerDocumentStyles: function (stylesCollection, documentElement) {
       var doc = documentElement || document;
       for (var i = 0; i < stylesCollection.length; i++) {
@@ -432,8 +244,8 @@
         return;
       }
 
-      if (iframe && iframe.parentNode === experienceEditor.getPageEditingWindow().document.body) {
-        experienceEditor.getPageEditingWindow().document.body.removeChild(iframe);
+      if (iframe && iframe.parentNode === window.parent.document.body) {
+        window.parent.document.body.removeChild(iframe);
       }
     },
 
@@ -455,16 +267,6 @@
         var tabs = jQuery(".sc-quickbar-tab");
         tabs.first().addClass("sc-quickbar-tab-selected");
         return;
-      }
-
-      if (ExperienceEditorContext.instance && ExperienceEditorContext.instance.cachedCommands) {
-        experienceEditor.CommandsUtil.runCommandsCollectionCanExecute(ExperienceEditorContext.instance.cachedCommands, function (stripId) {
-          if (stripId + "_ribbon_tab" != tabControl.id) {
-            return true;
-          }
-
-          return experienceEditor.ribbonIsCollapsed();
-        }, true);
       }
 
       var clickedTab = jQuery(tabControl);
@@ -507,7 +309,7 @@
     },
 
     showGallery: function (url, initiator, dimensions) {
-      experienceEditor.Common.registerDocumentStyles(["/-/speak/v1/ribbon/Gallery.css"], experienceEditor.getPageEditingWindow().document);
+      experienceEditor.Common.registerDocumentStyles(["/-/speak/v1/ribbon/Gallery.css"], window.parent.document);
       var clientRect = initiator.getBoundingClientRect();
       var iframeContentStyle = "z-index: 10000; display: none; overflow:auto; position: fixed; top: " + clientRect.top + "px; left: " + clientRect.left + "px; width: " + dimensions.width + "; height: " +
         dimensions.height;
@@ -517,6 +319,7 @@
       iframeContent.style.cssText = iframeContentStyle;
       iframeContent.src = url;
       iframeContent.id = "ee_iframeGallery";
+      var ribbonWindow = window;
       ExperienceEditorContext.openedFullContentIframe = iframeContent;
 
       iframeContent.onload = function () {
@@ -526,11 +329,11 @@
           experienceEditor.Common.closeFullContentIframe(iframeContent);
         };
 
-        experienceEditor.getPageEditingWindow().document.onclick = function () {
+        ribbonWindow.parent.document.onclick = function () {
           experienceEditor.Common.closeFullContentIframe(iframeContent);
         };
       };
-      experienceEditor.getPageEditingWindow().document.body.appendChild(iframeContent);
+      window.parent.document.body.appendChild(iframeContent);
     },
 
     getElementById: function (id) {
@@ -542,13 +345,13 @@
         return message.text == messageText;
       });
 
-      if (!experienceEditor.getPageEditingWindow().Sitecore
-        || !experienceEditor.getPageEditingWindow().Sitecore.PageModes
-        || !experienceEditor.getPageEditingWindow().Sitecore.PageModes.DesignManager) {
+      if (!window.parent.Sitecore
+        || !window.parent.Sitecore.PageModes
+        || !window.parent.Sitecore.PageModes.DesignManager) {
         return;
       }
 
-      experienceEditor.getPageEditingWindow().Sitecore.PageModes.DesignManager.sortingEnd();
+      window.parent.Sitecore.PageModes.DesignManager.sortingEnd();
     }
   };
 
@@ -560,36 +363,8 @@
       }
     },
 
-    confirm: function (message, onCloseCallback, okButtonText, cancelButtonText, dialogHeader, dialogWidth, dialogHeight, messageWidth, messageHeight) {
+    confirm: function (message, onCloseCallback) {
       var dialogUrl = "/sitecore/client/Applications/ExperienceEditor/Dialogs/Confirm/?message=" + message;
-      if (okButtonText) {
-        dialogUrl += "&okButtonText=" + okButtonText;
-      }
-
-      if (cancelButtonText) {
-        dialogUrl += "&cancelButtonText=" + cancelButtonText;
-      }
-
-      if (dialogHeader) {
-        dialogUrl += "&dialogHeader=" + dialogHeader;
-      }
-
-      if (dialogWidth) {
-        dialogUrl += "&dialogWidth=" + dialogWidth;
-      }
-
-      if (dialogHeight) {
-        dialogUrl += "&dialogHeight=" + dialogHeight;
-      }
-
-      if (messageWidth) {
-        dialogUrl += "&messageWidth=" + messageWidth;
-      }
-
-      if (messageHeight) {
-        dialogUrl += "&messageHeight=" + messageHeight;
-      }
-
       experienceEditor.Dialogs.showModalDialog(dialogUrl, "", "", null, onCloseCallback);
     },
 
@@ -643,7 +418,7 @@
     },
 
     getjqueryModalDialogsFrame: function () {
-      return experienceEditor.getPageEditingWindow().parent.parent.document.getElementById("jqueryModalDialogsFrame");
+      return window.parent.parent.parent.document.getElementById("jqueryModalDialogsFrame");
     }
   };
 
@@ -674,7 +449,9 @@
     },
 
     encodeHtml: function (htmlSource) {
-      return jQuery('<div/>').text(htmlSource).html();
+      htmlSource = htmlSource.replace(/\\/g, '\\\\').replace(/\"/g, "\\\"");
+      var encodedHtml = encodeURIComponent(htmlSource);
+      return encodedHtml;
     },
 
     getUrlQueryStringValue: function (parameterName) {
@@ -726,24 +503,12 @@
 
     postServerRequest: function (requestType, commandContext, handler, async) {
       var token = $('input[name="__RequestVerificationToken"]').val();
-	  
-	  if (commandContext && commandContext.scLayout){
-		debugger;
-		
-	  }
-	  
-	  var ajaxData = unescape(JSON.stringify(commandContext));
-	  var dat = {p:ajaxData};
-	  if (commandContext && commandContext.scLayout){
-		var obj = JSON.parse(commandContext.scLayout);
-		preprocAjaxData(obj, dat);
-	  }	
-	  
       jQuery.ajax({
         url: "/-/speak/request/v1/expeditor/" + requestType,
         data: {
           __RequestVerificationToken: token,
-          data: dat.p
+          //data: decodeURIComponent(decodeURIComponent(JSON.stringify(commandContext)))
+		  data: decodeURIComponent(JSON.stringify(commandContext))
         },
         success: handler,
         type: "POST",
@@ -760,7 +525,7 @@
           context.suspend();
           experienceEditor.Dialogs.showModalDialog(options.url(context), options.arguments, options.features, options.request, function(responseValue) {
             if (!responseValue || responseValue.length <= 0) {
-              context.abort();
+              context.aborted = true;
               return;
             }
 
@@ -801,24 +566,20 @@
                   //experienceEditor.Dialogs.alert(response.errorMessage);
                 }
               }
-
-              if (context.abort) {
-                context.abort();
-              }
-
+              context.aborted = true;
               return;
             }
 
             if (!response.responseValue) {
               console.log(requestType + " is not implemented on server side.");
-              context.abort();
+              context.aborted = true;
               return;
             }
 
             if (response.responseValue.abortMessage
               && response.responseValue.abortMessage != "") {
               experienceEditor.Dialogs.alert(response.responseValue.abortMessage);
-              context.abort();
+              context.aborted = true;
               return;
             }
 
@@ -826,7 +587,7 @@
               && response.responseValue.confirmMessage != "") {
               experienceEditor.Dialogs.confirm(response.responseValue.confirmMessage, function (isOk) {
                 if (!isOk) {
-                  context.abort();
+                  context.aborted = true;
                   return;
                 }
 
@@ -861,7 +622,7 @@
       onSuccess(response);
     },
 
-    executeProcessors: function (pipeline, context, onPipelineFinished) {
+    executeProcessors: function (pipeline, context) {
       if (pipeline == null) {
         return;
       }
@@ -878,16 +639,12 @@
       context.pipelineProcessors = list;
       context.currentProcessorIndex = 0;
 
-      experienceEditor.PipelinesUtil.runProcessor(context, onPipelineFinished);
+      experienceEditor.PipelinesUtil.runProcessor(context);
     },
 
-    runProcessor: function (context, onPipelineFinished) {
+    runProcessor: function (context) {
       var processor = context.pipelineProcessors[context.currentProcessorIndex];
       if (!processor) {
-        if (onPipelineFinished) {
-          onPipelineFinished(context);
-        }
-
         return;
       }
 
@@ -898,14 +655,7 @@
       context.resume = function () {
         context.suspended = false;
         context.currentProcessorIndex++;
-        experienceEditor.PipelinesUtil.runProcessor(context, onPipelineFinished);
-      };
-
-      context.abort = function () {
-        context.aborted = true;
-        if (onPipelineFinished) {
-          onPipelineFinished(context);
-        }
+        experienceEditor.PipelinesUtil.runProcessor(context);
       };
 
       processor.execute(context);
@@ -941,31 +691,6 @@
       this.dropDownMenuItemCommands.push({
         menuItemId: menuItemId,
         commandName: commandName
-      });
-    },
-
-    runCommandsCollectionCanExecute: function(commands, skipConditionFuncByStripId, skipEvaluated) {
-      $.each(commands, function () {
-        if (this.postponed && skipConditionFuncByStripId && skipConditionFuncByStripId(this.stripId)) {
-          return;
-        }
-
-        if (this.command === undefined) {
-          var controlStateResult = this.initiator.viewModel.$el.attr("data-sc-controlstateresult");
-          if (controlStateResult && controlStateResult != "") {
-            this.initiator.set({ isEnabled: controlStateResult == "True" });
-          }
-          return;
-        }
-
-        if (skipEvaluated && this.evaluated) {
-          return;
-        }
-
-        var context = experienceEditor.getContext().instance.getContext(this.initiator);
-        var clonedContext = experienceEditor.getContext().instance.clone(context);
-        this.initiator.set({ isEnabled: this.command.canExecute(clonedContext, this) });
-        this.evaluated = true;
       });
     },
 
@@ -1032,20 +757,3 @@
 
   return experienceEditor;
 });
-
-function preprocAjaxData(obj, dat){
-	if (obj && obj.r && obj.r.d){
-		if (!obj.r.d.forEach){ obj.r.d = [obj.r.d]; }				
-		obj.r.d.forEach(function(x,y){
-			if (x.r){
-				if (!x.r.forEach) { x.r = [x.r]; }
-				x.r.forEach(function(a,z){
-					var val = a["@par"];
-					if (val && val.length > 0){
-						dat.p = dat.p.replace(unescape(val), val);
-					}
-				});
-			}
-		});
-	}
-}

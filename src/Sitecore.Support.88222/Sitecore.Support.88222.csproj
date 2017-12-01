@@ -55,6 +55,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="sitecore\shell\client\Sitecore\ExperienceEditor\ExperienceEditor.js" />
+    <Content Include="sitecore\shell\client\Sitecore\ExperienceEditor\RibbonPageCode.js" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
